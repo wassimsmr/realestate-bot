@@ -1,8 +1,12 @@
-const TelegramBot = require('node-telegram-bot-api');
+const { VK, Keyboard } = require('vk-io');
+const express = require('express');
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
-const bot = new TelegramBot(TOKEN, { polling: true });
+const TOKEN = process.env.VK_TOKEN || 'YOUR_VK_TOKEN_HERE';
+const ADMIN_ID = process.env.ADMIN_VK_ID || null;
+const PORT = process.env.PORT || 3000;
+
+const vk = new VK({ token: TOKEN });
 
 // ─── SAMPLE LISTINGS ─────────────────────────────────────────────────────────
 const listings = [
@@ -17,7 +21,6 @@ const listings = [
     area: 87,
     floor: '5/12',
     description: 'Просторная квартира с евроремонтом, паркинг, закрытый двор.',
-    photo: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800',
   },
   {
     id: 2,
@@ -30,7 +33,6 @@ const listings = [
     area: 42,
     floor: '3/9',
     description: 'Уютная квартира-студия, 5 мин до метро, вся мебель.',
-    photo: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=800',
   },
   {
     id: 3,
@@ -43,7 +45,6 @@ const listings = [
     area: 200,
     floor: '2 этажа',
     description: 'Загородный дом с участком 10 соток, баня, гараж.',
-    photo: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800',
   },
   {
     id: 4,
@@ -56,7 +57,6 @@ const listings = [
     area: 65,
     floor: '4/6',
     description: 'Историческое здание, высокие потолки, паркет, вид на канал.',
-    photo: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=800',
   },
   {
     id: 5,
@@ -69,7 +69,6 @@ const listings = [
     area: 120,
     floor: '8/20',
     description: 'Открытый офис в бизнес-центре класса А, парковка, охрана.',
-    photo: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=800',
   },
   {
     id: 6,
@@ -82,69 +81,103 @@ const listings = [
     area: 130,
     floor: '10/14',
     description: 'Элитная квартира, панорамный вид, консьерж, фитнес в доме.',
-    photo: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800',
   },
 ];
 
-// ─── USER SESSION STORAGE ────────────────────────────────────────────────────
+// ─── FAQ DATA ─────────────────────────────────────────────────────────────────
+const faqs = [
+  {
+    q: '📄 Какие документы нужны для покупки?',
+    a: 'Для покупки квартиры потребуются:\n• Паспорт (все страницы)\n• ИНН\n• Согласие супруга/супруги (если в браке)\n• Документы на ипотеку (если используете кредит)\n\nНаш агент поможет собрать полный пакет документов.',
+  },
+  {
+    q: '🏦 Помогаете с ипотекой?',
+    a: 'Да! Мы сотрудничаем с ведущими банками России:\n• Сбербанк — от 10,9%\n• ВТБ — от 11,2%\n• Альфа-Банк — от 11,5%\n\nПоможем подобрать лучшие условия и оформить заявку онлайн.',
+  },
+  {
+    q: '⏱ Сколько времени занимает сделка?',
+    a: 'Стандартные сроки:\n• Подбор объекта: 1–2 недели\n• Юридическая проверка: 3–5 дней\n• Оформление договора: 1–3 дня\n• Регистрация в Росреестре: 5–10 рабочих дней\n\nИтого: от 3 до 6 недель.',
+  },
+  {
+    q: '💸 Каков размер комиссии агентства?',
+    a: 'Наша комиссия:\n• Продажа/покупка: 2–3% от стоимости объекта\n• Аренда: 50–100% от месячной арендной платы\n\nТочная сумма обсуждается индивидуально. Первая консультация — бесплатно!',
+  },
+];
+
+// ─── SESSION STORAGE ──────────────────────────────────────────────────────────
 const sessions = {};
 
-function getSession(chatId) {
-  if (!sessions[chatId]) {
-    sessions[chatId] = { step: 'main', filters: {}, bookingData: {} };
+function getSession(userId) {
+  if (!sessions[userId]) {
+    sessions[userId] = { step: 'main', filters: {}, bookingData: {}, bookingIndex: 0 };
   }
-  return sessions[chatId];
+  return sessions[userId];
 }
 
 // ─── KEYBOARDS ────────────────────────────────────────────────────────────────
-const mainMenuKeyboard = {
-  reply_markup: {
-    keyboard: [
-      ['🏠 Объекты недвижимости', '📅 Записаться на просмотр'],
-      ['❓ Частые вопросы', '📞 Связаться с агентом'],
-      ['ℹ️ О нас'],
-    ],
-    resize_keyboard: true,
-    persistent: true,
-  },
-};
+const mainKeyboard = Keyboard.builder()
+  .textButton({ label: '🏠 Объекты', color: Keyboard.PRIMARY_COLOR })
+  .textButton({ label: '📅 Записаться', color: Keyboard.POSITIVE_COLOR })
+  .row()
+  .textButton({ label: '❓ Вопросы', color: Keyboard.DEFAULT_COLOR })
+  .textButton({ label: '📞 Контакты', color: Keyboard.DEFAULT_COLOR })
+  .row()
+  .textButton({ label: 'ℹ️ О нас', color: Keyboard.DEFAULT_COLOR })
+  .oneTime(false)
+  .build();
 
-const listingsMenuKeyboard = {
-  reply_markup: {
-    keyboard: [
-      ['🛒 Купить', '🔑 Снять'],
-      ['🏢 Квартира', '🏡 Дом / Коттедж', '🏪 Коммерческая'],
-      ['🌆 Москва', '🌉 Санкт-Петербург', '📍 Подмосковье'],
-      ['📋 Все объекты', '🔙 Главное меню'],
-    ],
-    resize_keyboard: true,
-  },
-};
+const listingsKeyboard = Keyboard.builder()
+  .textButton({ label: '🛒 Купить', color: Keyboard.PRIMARY_COLOR })
+  .textButton({ label: '🔑 Снять', color: Keyboard.PRIMARY_COLOR })
+  .row()
+  .textButton({ label: '🏢 Квартира', color: Keyboard.DEFAULT_COLOR })
+  .textButton({ label: '🏡 Дом', color: Keyboard.DEFAULT_COLOR })
+  .textButton({ label: '🏪 Офис', color: Keyboard.DEFAULT_COLOR })
+  .row()
+  .textButton({ label: '🌆 Москва', color: Keyboard.DEFAULT_COLOR })
+  .textButton({ label: '🌉 Петербург', color: Keyboard.DEFAULT_COLOR })
+  .row()
+  .textButton({ label: '📋 Все объекты', color: Keyboard.POSITIVE_COLOR })
+  .textButton({ label: '🔙 Меню', color: Keyboard.NEGATIVE_COLOR })
+  .oneTime(false)
+  .build();
 
-const backKeyboard = {
-  reply_markup: {
-    keyboard: [['🔙 Главное меню']],
-    resize_keyboard: true,
-  },
-};
+const backKeyboard = Keyboard.builder()
+  .textButton({ label: '🔙 Меню', color: Keyboard.NEGATIVE_COLOR })
+  .oneTime(false)
+  .build();
+
+const faqKeyboard = Keyboard.builder()
+  .textButton({ label: '📄 Документы для покупки', color: Keyboard.DEFAULT_COLOR })
+  .row()
+  .textButton({ label: '🏦 Помогаете с ипотекой?', color: Keyboard.DEFAULT_COLOR })
+  .row()
+  .textButton({ label: '⏱ Сколько времени займёт?', color: Keyboard.DEFAULT_COLOR })
+  .row()
+  .textButton({ label: '💸 Размер комиссии?', color: Keyboard.DEFAULT_COLOR })
+  .row()
+  .textButton({ label: '🔙 Меню', color: Keyboard.NEGATIVE_COLOR })
+  .oneTime(false)
+  .build();
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function formatPrice(price, deal) {
-  if (deal === 'rent') return `${price.toLocaleString('ru-RU')} ₽/мес`;
-  return `${price.toLocaleString('ru-RU')} ₽`;
+  return deal === 'rent'
+    ? `${price.toLocaleString('ru-RU')} ₽/мес`
+    : `${price.toLocaleString('ru-RU')} ₽`;
 }
 
 function formatListing(l) {
   const dealLabel = l.deal === 'buy' ? '🛒 Продажа' : '🔑 Аренда';
   const roomsLine = l.rooms ? `🛏 Комнат: ${l.rooms}\n` : '';
   return (
-    `🏷 *${l.title}*\n` +
+    `🏷 ${l.title}\n` +
     `${dealLabel} | 📍 ${l.city}\n\n` +
     `📐 Площадь: ${l.area} м²\n` +
     `${roomsLine}` +
     `🏗 Этаж: ${l.floor}\n` +
     `📝 ${l.description}\n\n` +
-    `💰 *${formatPrice(l.price, l.deal)}*`
+    `💰 ${formatPrice(l.price, l.deal)}`
   );
 }
 
@@ -157,340 +190,210 @@ function filterListings(filters) {
   });
 }
 
-// ─── FAQ DATA ─────────────────────────────────────────────────────────────────
-const faqs = [
-  {
-    q: '📄 Какие документы нужны для покупки?',
-    a:
-      'Для покупки квартиры потребуются:\n' +
-      '• Паспорт (все страницы)\n' +
-      '• ИНН\n' +
-      '• Согласие супруга/супруги (если в браке)\n' +
-      '• Документы на ипотеку (если используете кредит)\n\n' +
-      'Наш агент поможет собрать полный пакет документов.',
-  },
-  {
-    q: '🏦 Помогаете с ипотекой?',
-    a:
-      'Да! Мы сотрудничаем с ведущими банками России:\n' +
-      '• Сбербанк — от 10,9%\n' +
-      '• ВТБ — от 11,2%\n' +
-      '• Альфа-Банк — от 11,5%\n\n' +
-      'Поможем подобрать лучшие условия и оформить заявку онлайн.',
-  },
-  {
-    q: '⏱ Сколько времени занимает сделка?',
-    a:
-      'Стандартные сроки:\n' +
-      '• Подбор объекта: 1–2 недели\n' +
-      '• Юридическая проверка: 3–5 дней\n' +
-      '• Оформление договора: 1–3 дня\n' +
-      '• Регистрация в Росреестре: 5–10 рабочих дней\n\n' +
-      'Итого: от 3 до 6 недель.',
-  },
-  {
-    q: '💸 Каков размер комиссии агентства?',
-    a:
-      'Наша комиссия:\n' +
-      '• Продажа/покупка: 2–3% от стоимости объекта\n' +
-      '• Аренда: 50–100% от месячной арендной платы\n\n' +
-      'Точная сумма обсуждается индивидуально. Первая консультация — бесплатно!',
-  },
-];
-
-// ─── BOOKING FLOW ─────────────────────────────────────────────────────────────
 const bookingSteps = ['name', 'phone', 'date', 'time', 'address'];
+const bookingPrompts = {
+  name: '👤 Введите ваше имя и фамилию:',
+  phone: '📱 Введите ваш номер телефона (например: +7 900 123-45-67):',
+  date: '📅 Укажите желаемую дату просмотра (например: 25.06.2025):',
+  time: '🕐 Укажите удобное время (например: 14:00):',
+  address: '🏠 Введите адрес объекта или его номер из каталога:',
+};
 
-function askBookingStep(chatId, step) {
-  const prompts = {
-    name: '👤 Введите ваше имя и фамилию:',
-    phone: '📱 Введите ваш номер телефона (например: +7 900 123-45-67):',
-    date: '📅 Укажите желаемую дату просмотра (например: 25.06.2025):',
-    time: '🕐 Укажите удобное время (например: 14:00):',
-    address: '🏠 Введите адрес объекта или его ID из каталога:',
-  };
-  bot.sendMessage(chatId, prompts[step], backKeyboard);
+// ─── SEND LISTINGS ────────────────────────────────────────────────────────────
+async function sendListings(context, filters) {
+  const results = filterListings(filters);
+  if (results.length === 0) {
+    return context.send({
+      message: '😔 По вашему запросу объекты не найдены. Попробуйте изменить фильтры.',
+      keyboard: listingsKeyboard,
+    });
+  }
+
+  await context.send({ message: `🏘 Найдено объектов: ${results.length}`, keyboard: listingsKeyboard });
+
+  for (const listing of results.slice(0, 5)) {
+    await context.send({
+      message: formatListing(listing) + `\n\n✏️ Чтобы записаться, напишите: записаться ${listing.id}`,
+    });
+  }
+}
+
+// ─── NOTIFY ADMIN ─────────────────────────────────────────────────────────────
+async function notifyAdmin(d) {
+  if (!ADMIN_ID) return;
+  try {
+    await vk.api.messages.send({
+      user_id: ADMIN_ID,
+      random_id: Date.now(),
+      message:
+        `🔔 Новая запись на просмотр!\n\n` +
+        `👤 Имя: ${d.name}\n` +
+        `📱 Телефон: ${d.phone}\n` +
+        `📅 Дата: ${d.date}\n` +
+        `🕐 Время: ${d.time}\n` +
+        `🏠 Объект: ${d.address}`,
+    });
+    console.log('Admin notified successfully');
+  } catch (err) {
+    console.error('Failed to notify admin:', err.message);
+  }
 }
 
 // ─── MESSAGE HANDLER ──────────────────────────────────────────────────────────
-bot.on('message', async (msg) => {
-  const chatId = msg.chat.id;
-  const text = msg.text || '';
-  const session = getSession(chatId);
+vk.updates.on('message_new', async (context) => {
+  const userId = context.senderId;
+  const text = (context.text || '').trim();
+  const session = getSession(userId);
 
-  // ── Booking flow ───────────────────────────────────────────────────────────
+  // Quick booking from listing
+  if (text.toLowerCase().startsWith('записаться ')) {
+    const id = text.split(' ')[1];
+    const listing = listings.find((l) => l.id === parseInt(id));
+    session.step = 'booking';
+    session.bookingIndex = 0;
+    session.bookingData = { address: listing ? listing.title : `Объект #${id}` };
+    return context.send({
+      message: `📅 Запись на просмотр\n🏠 Объект: ${session.bookingData.address}\n\n${bookingPrompts.name}`,
+      keyboard: backKeyboard,
+    });
+  }
+
+  // ── Booking flow ──
   if (session.step === 'booking') {
-    const currentField = bookingSteps[session.bookingIndex || 0];
-
-    if (text === '🔙 Главное меню') {
+    if (text === '🔙 Меню') {
       session.step = 'main';
       session.bookingData = {};
-      return bot.sendMessage(chatId, '🏠 Главное меню:', mainMenuKeyboard);
+      return context.send({ message: '🏠 Главное меню:', keyboard: mainKeyboard });
     }
 
+    const currentField = bookingSteps[session.bookingIndex];
     session.bookingData[currentField] = text;
-    session.bookingIndex = (session.bookingIndex || 0) + 1;
+    session.bookingIndex++;
 
     if (session.bookingIndex < bookingSteps.length) {
-      askBookingStep(chatId, bookingSteps[session.bookingIndex]);
+      return context.send({
+        message: bookingPrompts[bookingSteps[session.bookingIndex]],
+        keyboard: backKeyboard,
+      });
     } else {
       // Booking complete
       const d = session.bookingData;
       const summary =
-        `✅ *Запись на просмотр подтверждена!*\n\n` +
+        `✅ Запись на просмотр подтверждена!\n\n` +
         `👤 Имя: ${d.name}\n` +
         `📱 Телефон: ${d.phone}\n` +
         `📅 Дата: ${d.date}\n` +
         `🕐 Время: ${d.time}\n` +
         `🏠 Объект: ${d.address}\n\n` +
-        `Наш агент свяжется с вами в течение 30 минут для подтверждения. Спасибо!`;
-      bot.sendMessage(chatId, summary, { parse_mode: 'Markdown' });
-
-      // Notify admin
-      const adminId = process.env.ADMIN_CHAT_ID;
-      console.log('Admin notification: ADMIN_CHAT_ID =', adminId);
-      if (adminId) {
-        const adminMsg =
-          `🔔 *Новая запись на просмотр!*\n\n` +
-          `👤 Имя: ${d.name}\n` +
-          `📱 Телефон: ${d.phone}\n` +
-          `📅 Дата: ${d.date}\n` +
-          `🕐 Время: ${d.time}\n` +
-          `🏠 Объект: ${d.address}`;
-        bot.sendMessage(adminId, adminMsg, { parse_mode: 'Markdown' })
-          .then(() => console.log('Admin notified successfully'))
-          .catch((err) => console.error('Failed to notify admin:', err.message));
-      } else {
-        console.log('ADMIN_CHAT_ID not set — skipping admin notification');
-      }
+        `Наш агент свяжется с вами в течение 30 минут. Спасибо!`;
+      await context.send({ message: summary, keyboard: mainKeyboard });
+      await notifyAdmin(d);
       session.step = 'main';
       session.bookingData = {};
       session.bookingIndex = 0;
-      setTimeout(() => bot.sendMessage(chatId, '🏠 Главное меню:', mainMenuKeyboard), 1500);
+      return;
     }
-    return;
   }
 
-  // ── FAQ flow ───────────────────────────────────────────────────────────────
+  // ── FAQ flow ──
   if (session.step === 'faq') {
-    const faq = faqs.find((f) => f.q === text);
-    if (faq) {
-      await bot.sendMessage(chatId, faq.a, { parse_mode: 'Markdown' });
-      // Show FAQ menu again after answer
-      const faqKeyboard = {
-        reply_markup: {
-          keyboard: [...faqs.map((f) => [f.q]), ['🔙 Главное меню']],
-          resize_keyboard: true,
-        },
-      };
-      return bot.sendMessage(chatId, 'Выберите другой вопрос или вернитесь в меню:', faqKeyboard);
+    const faqMap = {
+      '📄 Документы для покупки': faqs[0],
+      '🏦 Помогаете с ипотекой?': faqs[1],
+      '⏱ Сколько времени займёт?': faqs[2],
+      '💸 Размер комиссии?': faqs[3],
+    };
+    if (faqMap[text]) {
+      return context.send({ message: faqMap[text].a, keyboard: faqKeyboard });
     }
-    if (text === '🔙 Главное меню') {
+    if (text === '🔙 Меню') {
       session.step = 'main';
-      return bot.sendMessage(chatId, '🏠 Главное меню:', mainMenuKeyboard);
+      return context.send({ message: '🏠 Главное меню:', keyboard: mainKeyboard });
     }
   }
 
-  // ── Main & Listings menu ───────────────────────────────────────────────────
+  // ── Main menu ──
   switch (text) {
-    case '/start':
+    case 'начать':
+    case 'start':
+    case 'привет':
     case 'ℹ️ О нас':
-    case '🔙 Главное меню': {
       session.step = 'main';
-      session.filters = {};
-      const greeting =
-        text === '/start'
-          ? `👋 Добро пожаловать в *АН Простор*!\n\nМы помогаем купить, продать и арендовать недвижимость по всей России.\n\nВыберите раздел:`
-          : text === 'ℹ️ О нас'
-          ? `🏢 *АН Простор* — агентство недвижимости с 2008 года.\n\n` +
-            `📊 *Наша статистика:*\n` +
-            `• 5 000+ успешных сделок\n` +
-            `• 120+ профессиональных агентов\n` +
-            `• Офисы в Москве и Санкт-Петербурге\n\n` +
-            `🏆 Лауреат премии «Лучшее агентство года» 2022, 2023\n\n` +
-            `Лицензия: 77-2008-РН-01234`
-          : `🏠 *Главное меню*`;
-      return bot.sendMessage(chatId, greeting, {
-        parse_mode: 'Markdown',
-        ...mainMenuKeyboard,
-      });
-    }
+      const greeting = text === 'ℹ️ О нас'
+        ? `🏢 АН Простор — агентство недвижимости с 2008 года.\n\n📊 Наша статистика:\n• 5 000+ успешных сделок\n• 120+ профессиональных агентов\n• Офисы в Москве и Санкт-Петербурге\n\n🏆 Лауреат премии «Лучшее агентство года» 2022, 2023`
+        : `👋 Добро пожаловать в АН Простор!\n\nМы помогаем купить, продать и арендовать недвижимость по всей России.\n\nВыберите раздел:`;
+      return context.send({ message: greeting, keyboard: mainKeyboard });
 
-    case '🏠 Объекты недвижимости': {
+    case '🏠 Объекты':
       session.step = 'listings';
       session.filters = {};
-      return bot.sendMessage(
-        chatId,
-        '🔍 *Каталог объектов*\n\nВыберите фильтр или посмотрите все объекты:',
-        { parse_mode: 'Markdown', ...listingsMenuKeyboard }
-      );
-    }
+      return context.send({ message: '🔍 Каталог объектов\nВыберите фильтр или смотрите все:', keyboard: listingsKeyboard });
 
     case '🛒 Купить':
-      session.filters.deal = 'buy';
-      return sendFilteredListings(chatId, session.filters);
+      session.filters = { ...session.filters, deal: 'buy' };
+      return sendListings(context, session.filters);
 
     case '🔑 Снять':
-      session.filters.deal = 'rent';
-      return sendFilteredListings(chatId, session.filters);
+      session.filters = { ...session.filters, deal: 'rent' };
+      return sendListings(context, session.filters);
 
     case '🏢 Квартира':
-      session.filters.type = 'apartment';
-      return sendFilteredListings(chatId, session.filters);
+      session.filters = { ...session.filters, type: 'apartment' };
+      return sendListings(context, session.filters);
 
-    case '🏡 Дом / Коттедж':
-      session.filters.type = 'house';
-      return sendFilteredListings(chatId, session.filters);
+    case '🏡 Дом':
+      session.filters = { ...session.filters, type: 'house' };
+      return sendListings(context, session.filters);
 
-    case '🏪 Коммерческая':
-      session.filters.type = 'commercial';
-      return sendFilteredListings(chatId, session.filters);
+    case '🏪 Офис':
+      session.filters = { ...session.filters, type: 'commercial' };
+      return sendListings(context, session.filters);
 
     case '🌆 Москва':
-      session.filters.city = 'Москва';
-      return sendFilteredListings(chatId, session.filters);
+      session.filters = { ...session.filters, city: 'Москва' };
+      return sendListings(context, session.filters);
 
-    case '🌉 Санкт-Петербург':
-      session.filters.city = 'Санкт-Петербург';
-      return sendFilteredListings(chatId, session.filters);
-
-    case '📍 Подмосковье':
-      session.filters.city = 'Московская';
-      return sendFilteredListings(chatId, session.filters);
+    case '🌉 Петербург':
+      session.filters = { ...session.filters, city: 'Петербург' };
+      return sendListings(context, session.filters);
 
     case '📋 Все объекты':
       session.filters = {};
-      return sendFilteredListings(chatId, {});
+      return sendListings(context, {});
 
-    case '📅 Записаться на просмотр': {
+    case '📅 Записаться':
       session.step = 'booking';
       session.bookingIndex = 0;
       session.bookingData = {};
-      await bot.sendMessage(
-        chatId,
-        '📅 *Запись на просмотр объекта*\n\nЯ задам несколько вопросов. В любой момент можно вернуться в меню.',
-        { parse_mode: 'Markdown' }
-      );
-      return askBookingStep(chatId, 'name');
-    }
+      return context.send({ message: `📅 Запись на просмотр объекта\n\n${bookingPrompts.name}`, keyboard: backKeyboard });
 
-    case '❓ Частые вопросы': {
+    case '❓ Вопросы':
       session.step = 'faq';
-      const faqKeyboard = {
-        reply_markup: {
-          keyboard: [...faqs.map((f) => [f.q]), ['🔙 Главное меню']],
-          resize_keyboard: true,
-        },
-      };
-      return bot.sendMessage(chatId, '❓ *Частые вопросы*\n\nВыберите интересующий вопрос:', {
-        parse_mode: 'Markdown',
-        ...faqKeyboard,
-      });
-    }
+      return context.send({ message: '❓ Частые вопросы\nВыберите интересующий вопрос:', keyboard: faqKeyboard });
 
-    case '📞 Связаться с агентом': {
-      const contactText =
-        `📞 *Наши контакты*\n\n` +
-        `📱 Телефон: +7 (495) 123-45-67\n` +
-        `📧 Email: info@prostor-estate.ru\n` +
-        `🌐 Сайт: www.prostor-estate.ru\n\n` +
-        `🕐 Режим работы:\n` +
-        `Пн–Пт: 9:00 – 20:00\n` +
-        `Сб–Вс: 10:00 – 18:00\n\n` +
-        `💬 Или напишите нам в Telegram: @prostor_agent`;
-      return bot.sendMessage(chatId, contactText, { parse_mode: 'Markdown', ...mainMenuKeyboard });
-    }
+    case '📞 Контакты':
+      return context.send({
+        message: `📞 Наши контакты\n\n📱 Телефон: +7 (495) 123-45-67\n📧 Email: info@prostor-estate.ru\n🌐 Сайт: www.prostor-estate.ru\n\n🕐 Режим работы:\nПн–Пт: 9:00 – 20:00\nСб–Вс: 10:00 – 18:00`,
+        keyboard: mainKeyboard,
+      });
+
+    case '🔙 Меню':
+      session.step = 'main';
+      session.filters = {};
+      return context.send({ message: '🏠 Главное меню:', keyboard: mainKeyboard });
 
     default:
-      if (session.step === 'main') {
-        return bot.sendMessage(
-          chatId,
-          '🤔 Я не понял вашу команду. Пожалуйста, используйте кнопки меню.',
-          mainMenuKeyboard
-        );
+      if (session.step === 'main' || !session.step) {
+        return context.send({ message: '🏠 Выберите раздел из меню:', keyboard: mainKeyboard });
       }
   }
 });
 
-// ─── SEND FILTERED LISTINGS ───────────────────────────────────────────────────
-async function sendFilteredListings(chatId, filters) {
-  const results = filterListings(filters);
+// ─── START ────────────────────────────────────────────────────────────────────
+const app = express();
+app.get('/', (req, res) => res.send('VK Bot is running!'));
+app.listen(PORT, () => console.log(`Server on port ${PORT}`));
 
-  if (results.length === 0) {
-    return bot.sendMessage(
-      chatId,
-      '😔 По вашему запросу объекты не найдены.\nПопробуйте изменить фильтры.',
-      listingsMenuKeyboard
-    );
-  }
-
-  await bot.sendMessage(
-    chatId,
-    `🏘 *Найдено объектов: ${results.length}*`,
-    { parse_mode: 'Markdown' }
-  );
-
-  for (const listing of results.slice(0, 5)) {
-    try {
-      await bot.sendPhoto(chatId, listing.photo, {
-        caption: formatListing(listing),
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '📅 Записаться на просмотр', callback_data: `book_${listing.id}` },
-              { text: '📞 Позвонить', callback_data: `call_${listing.id}` },
-            ],
-          ],
-        },
-      });
-    } catch {
-      await bot.sendMessage(chatId, formatListing(listing), { parse_mode: 'Markdown' });
-    }
-  }
-}
-
-// ─── CALLBACK QUERY HANDLER (inline buttons) ──────────────────────────────────
-bot.on('callback_query', async (query) => {
-  const chatId = query.message.chat.id;
-  const data = query.data;
-  const session = getSession(chatId);
-
-  await bot.answerCallbackQuery(query.id);
-
-  if (data.startsWith('book_')) {
-    const listingId = data.split('_')[1];
-    const listing = listings.find((l) => l.id === parseInt(listingId));
-    session.step = 'booking';
-    session.bookingIndex = 0;
-    session.bookingData = { address: listing ? listing.title : `Объект #${listingId}` };
-    // Skip address step since we know it
-    session.bookingIndex = bookingSteps.indexOf('address') + 1 > 0
-      ? bookingSteps.length - 1  // pre-fill address, start from name
-      : 0;
-    session.bookingIndex = 0;
-    session.bookingData = { address: listing ? listing.title : `Объект #${listingId}` };
-
-    await bot.sendMessage(
-      chatId,
-      `📅 *Запись на просмотр*\n🏠 Объект: ${session.bookingData.address}`,
-      { parse_mode: 'Markdown' }
-    );
-    askBookingStep(chatId, 'name');
-  }
-
-  if (data.startsWith('call_')) {
-    bot.sendMessage(
-      chatId,
-      `📞 Позвоните нам по номеру:\n*+7 (495) 123-45-67*\n\nИли укажите ваш номер, и мы перезвоним в течение 30 минут!`,
-      { parse_mode: 'Markdown', ...mainMenuKeyboard }
-    );
-  }
-});
-
-// ─── ERROR HANDLER ────────────────────────────────────────────────────────────
-bot.on('polling_error', (error) => {
-  console.error('Polling error:', error.message);
-});
-
-console.log('🚀 Real Estate Bot запущен!');
+vk.updates.startPolling()
+  .then(() => console.log('🚀 VK Real Estate Bot запущен!'))
+  .catch(console.error);
