@@ -236,6 +236,19 @@ bot.on('message', async (msg) => {
     } else {
       // Booking complete
       const d = session.bookingData;
+      // Notify admin
+      const adminId = process.env.ADMIN_CHAT_ID;
+      if (adminId) {
+        const adminMsg =
+          `📅 *Новая запись на просмотр!*\n\n` +
+          `👤 Имя: ${d.name}\n` +
+          `📱 Телефон: ${d.phone}\n` +
+          `📅 Дата: ${d.date}\n` +
+          `🕐 Время: ${d.time}\n` +
+          `🏠 Объект: ${d.address}`;
+        bot.sendMessage(adminId, adminMsg, { parse_mode: 'Markdown' });
+      }
+
       const summary =
         `✅ *Запись на просмотр подтверждена!*\n\n` +
         `👤 Имя: ${d.name}\n` +
