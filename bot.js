@@ -1,10 +1,10 @@
 const TelegramBot = require('node-telegram-bot-api');
 
-// ─── CONFIG ───────────────────────────────────────────────────────────────
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
 const bot = new TelegramBot(TOKEN, { polling: true });
 
-// ─── SAMPLE LISTINGS ──────────────────────────────────────────────────────
+// ─── SAMPLE LISTINGS ─────────────────────────────────────────────────────────
 const listings = [
   {
     id: 1,
@@ -86,7 +86,7 @@ const listings = [
   },
 ];
 
-// ─── USER SESSION STORAGE ────────────────────────────────────────────────
+// ─── USER SESSION STORAGE ────────────────────────────────────────────────────
 const sessions = {};
 
 function getSession(chatId) {
@@ -96,7 +96,7 @@ function getSession(chatId) {
   return sessions[chatId];
 }
 
-// ─── KEYBOARDS ────────────────────────────────────────────────────────────
+// ─── KEYBOARDS ────────────────────────────────────────────────────────────────
 const mainMenuKeyboard = {
   reply_markup: {
     keyboard: [
@@ -128,7 +128,7 @@ const backKeyboard = {
   },
 };
 
-// ─── HELPERS ───────────────────────────────────────────────────────────────
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
 function formatPrice(price, deal) {
   if (deal === 'rent') return `${price.toLocaleString('ru-RU')} ₽/мес`;
   return `${price.toLocaleString('ru-RU')} ₽`;
@@ -157,7 +157,7 @@ function filterListings(filters) {
   });
 }
 
-// ─── FAQ DATA ──────────────────────────────────────────────────────────────
+// ─── FAQ DATA ─────────────────────────────────────────────────────────────────
 const faqs = [
   {
     q: '📄 Какие документы нужны для покупки?',
@@ -198,7 +198,7 @@ const faqs = [
   },
 ];
 
-// ─── BOOKING FLOW ────────────────────────────────────────────────────────
+// ─── BOOKING FLOW ─────────────────────────────────────────────────────────────
 const bookingSteps = ['name', 'phone', 'date', 'time', 'address'];
 
 function askBookingStep(chatId, step) {
@@ -212,13 +212,13 @@ function askBookingStep(chatId, step) {
   bot.sendMessage(chatId, prompts[step], backKeyboard);
 }
 
-// ─── MESSAGE HANDLER ──────────────────────────────────────────────────────
+// ─── MESSAGE HANDLER ──────────────────────────────────────────────────────────
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text || '';
   const session = getSession(chatId);
 
-  // ── Booking flow ──────────────────────────────────────────────────────────
+  // ── Booking flow ───────────────────────────────────────────────────────────
   if (session.step === 'booking') {
     const currentField = bookingSteps[session.bookingIndex || 0];
 
@@ -300,7 +300,7 @@ bot.on('message', async (msg) => {
       session.filters = {};
       const greeting =
         text === '/start'
-          ? `👋 Добро пожаловать в *АН Простор*!\n\nМы помогаем купить, продать и арендовать недвижимость по всей России.`
+          ? `👋 Добро пожаловать в *АН Простор*!\n\nМы помогаем купить, продать и арендовать недвижимость по всей России.\n\nВыберите раздел:`
           : text === 'ℹ️ О нас'
           ? `🏢 *АН Простор* — агентство недвижимости с 2008 года.\n\n` +
             `📊 *Наша статистика:*\n` +
@@ -412,7 +412,7 @@ bot.on('message', async (msg) => {
   }
 });
 
-// ─── SEND FILTERED LISTINGS ───────────────────────────────────────────────
+// ─── SEND FILTERED LISTINGS ───────────────────────────────────────────────────
 async function sendFilteredListings(chatId, filters) {
   const results = filterListings(filters);
 
@@ -450,7 +450,7 @@ async function sendFilteredListings(chatId, filters) {
   }
 }
 
-// ─── CALLBACK QUERY HANDLER (inline buttons) ──────────────────────────────
+// ─── CALLBACK QUERY HANDLER (inline buttons) ──────────────────────────────────
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
@@ -488,7 +488,7 @@ bot.on('callback_query', async (query) => {
   }
 });
 
-// ─── ERROR HANDLER ────────────────────────────────────────────────────────
+// ─── ERROR HANDLER ────────────────────────────────────────────────────────────
 bot.on('polling_error', (error) => {
   console.error('Polling error:', error.message);
 });
