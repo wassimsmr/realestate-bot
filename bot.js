@@ -1,9 +1,9 @@
 const TelegramBot = require('node-telegram-bot-api');
-
+ 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
 const bot = new TelegramBot(TOKEN, { polling: true });
-
+ 
 // ─── SAMPLE LISTINGS ─────────────────────────────────────────────────────────
 const listings = [
   {
@@ -85,17 +85,17 @@ const listings = [
     photo: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800',
   },
 ];
-
+ 
 // ─── USER SESSION STORAGE ────────────────────────────────────────────────────
 const sessions = {};
-
+ 
 function getSession(chatId) {
   if (!sessions[chatId]) {
     sessions[chatId] = { step: 'main', filters: {}, bookingData: {} };
   }
   return sessions[chatId];
 }
-
+ 
 // ─── KEYBOARDS ────────────────────────────────────────────────────────────────
 const mainMenuKeyboard = {
   reply_markup: {
@@ -108,7 +108,7 @@ const mainMenuKeyboard = {
     persistent: true,
   },
 };
-
+ 
 const listingsMenuKeyboard = {
   reply_markup: {
     keyboard: [
@@ -120,20 +120,20 @@ const listingsMenuKeyboard = {
     resize_keyboard: true,
   },
 };
-
+ 
 const backKeyboard = {
   reply_markup: {
     keyboard: [['🔙 Главное меню']],
     resize_keyboard: true,
   },
 };
-
+ 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function formatPrice(price, deal) {
   if (deal === 'rent') return `${price.toLocaleString('ru-RU')} ₽/мес`;
   return `${price.toLocaleString('ru-RU')} ₽`;
 }
-
+ 
 function formatListing(l) {
   const dealLabel = l.deal === 'buy' ? '🛒 Продажа' : '🔑 Аренда';
   const roomsLine = l.rooms ? `🛏 Комнат: ${l.rooms}\n` : '';
@@ -147,7 +147,7 @@ function formatListing(l) {
     `💰 *${formatPrice(l.price, l.deal)}*`
   );
 }
-
+ 
 function filterListings(filters) {
   return listings.filter((l) => {
     if (filters.deal && l.deal !== filters.deal) return false;
@@ -156,7 +156,7 @@ function filterListings(filters) {
     return true;
   });
 }
-
+ 
 // ─── FAQ DATA ─────────────────────────────────────────────────────────────────
 const faqs = [
   {
@@ -197,10 +197,10 @@ const faqs = [
       'Точная сумма обсуждается индивидуально. Первая консультация — бесплатно!',
   },
 ];
-
+ 
 // ─── BOOKING FLOW ─────────────────────────────────────────────────────────────
 const bookingSteps = ['name', 'phone', 'date', 'time', 'address'];
-
+ 
 function askBookingStep(chatId, step) {
   const prompts = {
     name: '👤 Введите ваше имя и фамилию:',
@@ -211,44 +211,31 @@ function askBookingStep(chatId, step) {
   };
   bot.sendMessage(chatId, prompts[step], backKeyboard);
 }
-
+ 
 // ─── MESSAGE HANDLER ──────────────────────────────────────────────────────────
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text || '';
   const session = getSession(chatId);
-
+ 
   // ── Booking flow ───────────────────────────────────────────────────────────
   if (session.step === 'booking') {
     const currentField = bookingSteps[session.bookingIndex || 0];
-
+ 
     if (text === '🔙 Главное меню') {
       session.step = 'main';
       session.bookingData = {};
       return bot.sendMessage(chatId, '🏠 Главное меню:', mainMenuKeyboard);
     }
-
+ 
     session.bookingData[currentField] = text;
     session.bookingIndex = (session.bookingIndex || 0) + 1;
-
+ 
     if (session.bookingIndex < bookingSteps.length) {
       askBookingStep(chatId, bookingSteps[session.bookingIndex]);
     } else {
       // Booking complete
       const d = session.bookingData;
-      // Notify admin
-      const adminId = process.env.ADMIN_CHAT_ID;
-      if (adminId) {
-        const adminMsg =
-          `📅 *Новая запись на просмотр!*\n\n` +
-          `👤 Имя: ${d.name}\n` +
-          `📱 Телефон: ${d.phone}\n` +
-          `📅 Дата: ${d.date}\n` +
-          `🕐 Время: ${d.time}\n` +
-          `🏠 Объект: ${d.address}`;
-        bot.sendMessage(adminId, adminMsg, { parse_mode: 'Markdown' });
-      }
-
       const summary =
         `✅ *Запись на просмотр подтверждена!*\n\n` +
         `👤 Имя: ${d.name}\n` +
@@ -258,6 +245,24 @@ bot.on('message', async (msg) => {
         `🏠 Объект: ${d.address}\n\n` +
         `Наш агент свяжется с вами в течение 30 минут для подтверждения. Спасибо!`;
       bot.sendMessage(chatId, summary, { parse_mode: 'Markdown' });
+ 
+      // Notify admin
+      const adminId = process.env.ADMIN_CHAT_ID;
+      console.log('Admin notification: ADMIN_CHAT_ID =', adminId);
+      if (adminId) {
+        const adminMsg =
+          `🔔 *Новая запись на просмотр!*\n\n` +
+          `👤 Имя: ${d.name}\n` +
+          `📱 Телефон: ${d.phone}\n` +
+          `📅 Дата: ${d.date}\n` +
+          `🕐 Время: ${d.time}\n` +
+          `🏠 Объект: ${d.address}`;
+        bot.sendMessage(adminId, adminMsg, { parse_mode: 'Markdown' })
+          .then(() => console.log('Admin notified successfully'))
+          .catch((err) => console.error('Failed to notify admin:', err.message));
+      } else {
+        console.log('ADMIN_CHAT_ID not set — skipping admin notification');
+      }
       session.step = 'main';
       session.bookingData = {};
       session.bookingIndex = 0;
@@ -265,7 +270,7 @@ bot.on('message', async (msg) => {
     }
     return;
   }
-
+ 
   // ── FAQ flow ───────────────────────────────────────────────────────────────
   if (session.step === 'faq') {
     const faq = faqs.find((f) => f.q === text);
@@ -285,7 +290,7 @@ bot.on('message', async (msg) => {
       return bot.sendMessage(chatId, '🏠 Главное меню:', mainMenuKeyboard);
     }
   }
-
+ 
   // ── Main & Listings menu ───────────────────────────────────────────────────
   switch (text) {
     case '/start':
@@ -310,7 +315,7 @@ bot.on('message', async (msg) => {
         ...mainMenuKeyboard,
       });
     }
-
+ 
     case '🏠 Объекты недвижимости': {
       session.step = 'listings';
       session.filters = {};
@@ -320,43 +325,43 @@ bot.on('message', async (msg) => {
         { parse_mode: 'Markdown', ...listingsMenuKeyboard }
       );
     }
-
+ 
     case '🛒 Купить':
       session.filters.deal = 'buy';
       return sendFilteredListings(chatId, session.filters);
-
+ 
     case '🔑 Снять':
       session.filters.deal = 'rent';
       return sendFilteredListings(chatId, session.filters);
-
+ 
     case '🏢 Квартира':
       session.filters.type = 'apartment';
       return sendFilteredListings(chatId, session.filters);
-
+ 
     case '🏡 Дом / Коттедж':
       session.filters.type = 'house';
       return sendFilteredListings(chatId, session.filters);
-
+ 
     case '🏪 Коммерческая':
       session.filters.type = 'commercial';
       return sendFilteredListings(chatId, session.filters);
-
+ 
     case '🌆 Москва':
       session.filters.city = 'Москва';
       return sendFilteredListings(chatId, session.filters);
-
+ 
     case '🌉 Санкт-Петербург':
       session.filters.city = 'Санкт-Петербург';
       return sendFilteredListings(chatId, session.filters);
-
+ 
     case '📍 Подмосковье':
       session.filters.city = 'Московская';
       return sendFilteredListings(chatId, session.filters);
-
+ 
     case '📋 Все объекты':
       session.filters = {};
       return sendFilteredListings(chatId, {});
-
+ 
     case '📅 Записаться на просмотр': {
       session.step = 'booking';
       session.bookingIndex = 0;
@@ -368,7 +373,7 @@ bot.on('message', async (msg) => {
       );
       return askBookingStep(chatId, 'name');
     }
-
+ 
     case '❓ Частые вопросы': {
       session.step = 'faq';
       const faqKeyboard = {
@@ -382,7 +387,7 @@ bot.on('message', async (msg) => {
         ...faqKeyboard,
       });
     }
-
+ 
     case '📞 Связаться с агентом': {
       const contactText =
         `📞 *Наши контакты*\n\n` +
@@ -395,7 +400,7 @@ bot.on('message', async (msg) => {
         `💬 Или напишите нам в Telegram: @prostor_agent`;
       return bot.sendMessage(chatId, contactText, { parse_mode: 'Markdown', ...mainMenuKeyboard });
     }
-
+ 
     default:
       if (session.step === 'main') {
         return bot.sendMessage(
@@ -406,11 +411,11 @@ bot.on('message', async (msg) => {
       }
   }
 });
-
+ 
 // ─── SEND FILTERED LISTINGS ───────────────────────────────────────────────────
 async function sendFilteredListings(chatId, filters) {
   const results = filterListings(filters);
-
+ 
   if (results.length === 0) {
     return bot.sendMessage(
       chatId,
@@ -418,13 +423,13 @@ async function sendFilteredListings(chatId, filters) {
       listingsMenuKeyboard
     );
   }
-
+ 
   await bot.sendMessage(
     chatId,
     `🏘 *Найдено объектов: ${results.length}*`,
     { parse_mode: 'Markdown' }
   );
-
+ 
   for (const listing of results.slice(0, 5)) {
     try {
       await bot.sendPhoto(chatId, listing.photo, {
@@ -444,15 +449,15 @@ async function sendFilteredListings(chatId, filters) {
     }
   }
 }
-
+ 
 // ─── CALLBACK QUERY HANDLER (inline buttons) ──────────────────────────────────
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
   const session = getSession(chatId);
-
+ 
   await bot.answerCallbackQuery(query.id);
-
+ 
   if (data.startsWith('book_')) {
     const listingId = data.split('_')[1];
     const listing = listings.find((l) => l.id === parseInt(listingId));
@@ -465,7 +470,7 @@ bot.on('callback_query', async (query) => {
       : 0;
     session.bookingIndex = 0;
     session.bookingData = { address: listing ? listing.title : `Объект #${listingId}` };
-
+ 
     await bot.sendMessage(
       chatId,
       `📅 *Запись на просмотр*\n🏠 Объект: ${session.bookingData.address}`,
@@ -473,7 +478,7 @@ bot.on('callback_query', async (query) => {
     );
     askBookingStep(chatId, 'name');
   }
-
+ 
   if (data.startsWith('call_')) {
     bot.sendMessage(
       chatId,
@@ -482,10 +487,11 @@ bot.on('callback_query', async (query) => {
     );
   }
 });
-
+ 
 // ─── ERROR HANDLER ────────────────────────────────────────────────────────────
 bot.on('polling_error', (error) => {
   console.error('Polling error:', error.message);
 });
-
+ 
 console.log('🚀 Real Estate Bot запущен!');
+ 
